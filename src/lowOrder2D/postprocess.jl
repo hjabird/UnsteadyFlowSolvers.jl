@@ -31,7 +31,7 @@ function calc_forces(surf::TwoDSurf, vels::Vector{Float64})
     return cl, cd, cm
 end
 
-function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDFlowField)
+function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDFlowFieldAbstract)
     dirvec = readdir()
     if dirname in dirvec
         rm(dirname, recursive=true)
@@ -59,32 +59,9 @@ function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDF
     # writedlm(f, [cl, cd, cm, gamma, cn, cs, cnc, cnnc, nonl, cm_n, cm_pvt, nonl_m])
     # close(f)
 
-    f = open("tev", "w")
-    Serialization.serialize(f, ["#strength \t", "x-position \t", "z-position \n"])
-    tevmat = zeros(length(curfield.tev), 3)
-    for i = 1:length(curfield.tev)
-        tevmat[i,:] = [curfield.tev[i].s curfield.tev[i].x curfield.tev[i].z]
-    end
-    DelimitedFiles.writedlm(f, tevmat)
-    close(f)
-
-    f = open("lev", "w")
-    Serialization.serialize(f, ["#strength \t", "x-position \t", "z-position \n"])
-    levmat = zeros(length(curfield.lev), 3)
-    for i = 1:length(curfield.lev)
-        levmat[i,:] = [curfield.lev[i].s curfield.lev[i].x curfield.lev[i].z]
-    end
-    DelimitedFiles.writedlm(f, levmat)
-    close(f)
-
-    f = open("boundv", "w")
-    Serialization.serialize(f, ["#strength \t", "x-position \t", "z-position \n"])
-    bvmat = zeros(length(surf.bv), 3)
-    for i = 1:length(surf.bv)
-        bvmat[i,:] = [surf.bv[i].s surf.bv[i].x surf.bv[i].z]
-    end
-    DelimitedFiles.writedlm(f, bvmat)
-    close(f)
+    writeStamp(curfield.tev, "tev")
+    writeStamp(curfield.lev, "lev")
+    writeStamp(surf.bv, "boundv")
 
     f = open("delcp_edgevel", "w")
     Serialization.serialize(f, ["#x \t", "delcp \t", "delcp_inner \t", "delcp_outer \t", "qu \t", "ql \n"])
@@ -134,42 +111,63 @@ function writeStamp(dirname::String, t::Float64, surf::Vector{TwoDSurf}, curfiel
         # close(f)
     end
 
-    f = open("tev", "w")
-    Serialization.serialize(f, ["#strength \t", "x-position \t", "z-position \n"])
-    tevmat = zeros(length(curfield.tev), 3)
-    for i = 1:length(curfield.tev)
-        tevmat[i,:] = [curfield.tev[i].s curfield.tev[i].x curfield.tev[i].z]
-    end
-    DelimitedFiles.writedlm(f, tevmat)
-    close(f)
-
-    f = open("lev", "w")
-    Serialization.serialize(f, ["#strength \t", "x-position \t", "z-position \n"])
-    levmat = zeros(length(curfield.lev), 3)
-    levcount = 0
-    for i = 1:length(curfield.lev)
-        if curfield.lev[i].vc != 0.
-            levcount += 1
-            levmat[levcount,:] = [curfield.lev[i].s curfield.lev[i].x curfield.lev[i].z]
-        end
-    end
-
-    levmat = levmat[1:levcount,:]
-    DelimitedFiles.writedlm(f, levmat)
-    close(f)
-
-    for is = 1:nsurf
-        f = open("boundv-$is", "w")
-        Serialization.serialize(f, ["#strength \t", "x-position \t", "z-position \n"])
-        bvmat = zeros(length(surf[is].bv), 3)
-        for i = 1:length(surf[is].bv)
-            bvmat[i,:] = [surf[is].bv[i].s surf[is].bv[i].x surf[is].bv[i].z]
-        end
-        DelimitedFiles.writedlm(f, bvmat)
-        close(f)
-    end
+    writeStamp(curfield.tev, "tev")
+    writeStamp(curfield.lev, "lev"; remove_zero_rad_particles=true)
 
     cd("..")
+end
+
+function writeStamp(
+    particles::Vector{TwoDVort}, 
+    file::IOStream;
+    remove_zero_rad_particles=false)
+
+    @assert(!isreadonly(file), "Cannot write to readonly file stream.")
+    Serialization.serialize(file, ["#strength \t", "x-position \t", "z-position \n"])
+    pmat = zeros(length(particles), 3)
+    count = 0
+    for i = 1:length(particles)
+        if !remove_zero_rad_particles && particles[i].vc != 0.
+            count += 1
+            pmat[count,:] = [particles[i].s particles[i].x particles[i].z]
+        end
+    end
+    pmat = pmat[1:count,:]
+    DelimitedFiles.writedlm(file, pmat)
+    return
+end
+
+function writeStamp(
+    particles::Vector{TwoDVVort}, 
+    file::IOStream;
+    remove_zero_rad_particles=false)
+
+    @assert(!isreadonly(file), "Cannot write to readonly file stream.")
+    Serialization.serialize(file, 
+        ["#strength \t", "x-position \t", "z-position \t", "core_radius \n"])
+    pmat = zeros(length(particles), 4)
+    count = 0
+    for i = 1:length(particles)
+        if !remove_zero_rad_particles && particles[i].vc != 0.
+            count += 1
+            pmat[count,:] = [particles[i].s particles[i].x particles[i].z particles[i].vc]
+        end
+    end
+    pmat = pmat[1:count,:]
+    DelimitedFiles.writedlm(file, pmat)
+    return
+end
+
+function writeStamp(
+    particles::Vector{<:TwoDVortAbstract},
+    file_path::String;
+    remove_zero_rad_particles=false)
+
+    file = open(file_path, "w")
+    writeStamp(particles, file;
+        remove_zero_rad_particles=remove_zero_rad_particles)
+    close(file)
+    return
 end
 
 function calc_delcp(surf::TwoDSurf, vels::Vector{Float64})

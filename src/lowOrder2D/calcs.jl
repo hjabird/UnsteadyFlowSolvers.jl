@@ -304,8 +304,7 @@ end
 # Function for calculating the wake rollup
 function wakeroll(surf::TwoDSurf, curfield::TwoDVFlowField, dt)
 
-    nu = surf.c*surf.uref/curfield.Re
-    
+    nu = curfield.kinematic_visc
     nlev = length(curfield.lev)
     ntev = length(curfield.tev)
     nextv = length(curfield.extv)
@@ -314,20 +313,23 @@ function wakeroll(surf::TwoDSurf, curfield::TwoDVFlowField, dt)
     for i = 1:ntev
         curfield.tev[i].vx = 0
         curfield.tev[i].vz = 0
+        curfield.tev[i].dvc = 0
     end
 
     for i = 1:nlev
         curfield.lev[i].vx = 0
         curfield.lev[i].vz = 0
+        curfield.lev[i].dvc = 0
     end
 
     for i = 1:nextv
         curfield.extv[i].vx = 0
         curfield.extv[i].vz = 0
+        curfield.extv[i].dvc = 0
     end
 
     #Velocities induced by free vortices on each other
-    mutual_ind_v([curfield.tev; curfield.lev; curfield.extv; surf.bv], nu)
+    mutual_ind_v_gaussian([curfield.tev; curfield.lev; curfield.extv; surf.bv], nu)
 
     # #Add the influence of velocities induced by bound vortices
     # utemp = zeros(ntev + nlev + nextv)
@@ -377,6 +379,7 @@ function wakeroll(surf::TwoDSurf, curfield::TwoDVFlowField, dt)
         curfield.extv[i].z += dt*curfield.extv[i].vz
         curfield.extv[i].vc = sqrt(curfield.extv[i].vc^2 + dt*curfield.extv[i].dvc)
     end
+    return
 end
 
 
@@ -459,7 +462,8 @@ function wakeroll(surf::Vector{TwoDSurf}, curfield::TwoDFlowField, dt)
 end
 
 function wakeroll(curfield::TwoDVFlowField, dt)
-
+    # How to calculate nu based on a Reynolds number? Assume Re=Gamma/nu
+    nu = curfield.kinematic_visc
     nlev = length(curfield.lev)
     ntev = length(curfield.tev)
     nextv = length(curfield.extv)
@@ -483,9 +487,8 @@ function wakeroll(curfield::TwoDVFlowField, dt)
         curfield.extv[i].dvc = 0
     end
 
-
     #Velocities induced by free vortices on each other
-    mutual_ind([curfield.tev; curfield.lev; curfield.extv], curfield.nu)
+    mutual_ind_v_gaussian([curfield.tev; curfield.lev; curfield.extv], nu)
 
     #Convect free vortices with their induced velocities
     #Update core size of vortices
@@ -511,8 +514,9 @@ end
 
 
 # Places a trailing edge vortex
-function place_tev(surf::TwoDSurf,field::TwoDFlowField,dt)
+function place_tev(surf::TwoDSurf,field::TwoDFlowFieldAbstract,dt)
     ntev = length(field.tev)
+
     if ntev == 0
         xloc = surf.bnd_x[surf.ndiv] + 0.5*surf.kinem.u*dt
         zloc = surf.bnd_z[surf.ndiv]
@@ -521,24 +525,25 @@ function place_tev(surf::TwoDSurf,field::TwoDFlowField,dt)
 
         zloc = surf.bnd_z[surf.ndiv]+(1. /3.)*(field.tev[ntev].z - surf.bnd_z[surf.ndiv])
     end
-    push!(field.tev,TwoDVort(xloc,zloc,0.,0.02*surf.c,0.,0.))
+    push!(field.tev, vortex_type(field)(xloc,zloc,0.,0.02*surf.c,0.,0.))
     return field
 end
 
-function place_tev(surf::Vector{TwoDSurf},field::TwoDFlowField,dt)
+function place_tev(surf::Vector{TwoDSurf},field::TwoDFlowFieldAbstract,dt)
     nsurf = length(surf)
     ntev = length(field.tev)
+
     if ntev < nsurf
         for i = 1:nsurf
             xloc = surf[i].bnd_x[end] + 0.5*surf[i].kinem.u*dt
             zloc = surf[i].bnd_z[end]
-            push!(field.tev,TwoDVort(xloc,zloc,0.,0.02*surf[i].c,0.,0.))
+            push!(field.tev, vortex_type(field)(xloc,zloc,0.,0.02*surf[i].c))
         end
     else
         for i = 1:nsurf
             xloc = surf[i].bnd_x[end]+(1. /3.)*(field.tev[ntev-nsurf+i].x - surf[i].bnd_x[end])
             zloc = surf[i].bnd_z[end]+(1. /3.)*(field.tev[ntev-nsurf+i].z - surf[i].bnd_z[end])
-            push!(field.tev,TwoDVort(xloc,zloc,0.,0.02*surf[i].c,0.,0.))
+            push!(field.tev, vortex_type(field)(xloc,zloc,0.,0.02*surf[i].c))
         end
     end
     return field
@@ -655,56 +660,100 @@ function mutual_ind(vorts::Vector{TwoDVort})
     return vorts
 end
 
-function mutual_ind_v(vorts::Vector{Any}, nu)
-    n = length(vorts)
-    w = zeros(n)
-    wx = zeros(n)
-    wz = zeros(n)
-    w_lap = zeros(n)
+# Uses Gaussian regularisiation
+function mutual_ind_v_gaussian(vorts::Vector{<:TwoDVortAbstract}, nu::Real)
+
+	@assert(nu >= 0, "Kinematic viscosity must be >= 0.")
+	@assert(sum(map(v->typeof(v)==TwoDVVort ? abs(v.dvc) : 0, vorts))==0,
+		"Not all of the viscous vortex particles started with zero rate"*
+		" of change of vorticity.")
+	@assert(all(map(v->v.vc>=0, vorts)), "Expected vortex cores to have 0 "*
+		"or positive radius")
+	@assert(all(isfinite.(map(v->v.x, vorts))), 
+		"1 or more vortex particles had a bad x coord.")
+	@assert(all(isfinite.(map(v->v.z, vorts))), 
+		"1 or more vortex particles had a bad z coord.")
+	@assert(all(isfinite.(map(v->v.s, vorts))), 
+		"1 or more vortex particles had a bad vorticity.")
+	@assert(all(isfinite.(map(v->v.vx, vorts))), 
+		"1 or more vortex particles had a bad x velocity.")
+	@assert(all(isfinite.(map(v->v.vz, vorts))), 
+        "1 or more vortex particles had a bad z velocity.")
+	
+	n = length(vorts)
+    w = zeros(n)	# Local vorticity density
+    wx = zeros(n)	# x derivative of vorticity density
+    wz = zeros(n)	# z derivative of vorticity density
+    w_lap = zeros(n)# Laplacian of vorticity density.
     
+    # Pairwise interactions
     for i = 1:n
         for j = i+1:n
+            # source - tar: Equations are +ve for i, and j must be corrected for -dx & -dz.
             dx = vorts[i].x - vorts[j].x
             dz = vorts[i].z - vorts[j].z
-            #source- tar
             dsq = dx*dx + dz*dz
 
-            if typeof(vorts[i]) == TwoDVVort
-                magitr = 1. /(2*pi*sqrt(vorts[j].vc*vorts[j].vc*vorts[j].vc*vorts[j].vc + dsq*dsq))
-                magjtr = 1. /(2*pi*sqrt(vorts[i].vc*vorts[i].vc*vorts[i].vc*vorts[i].vc + dsq*dsq))
-                            
-                vorts[j].vx -= dz * vorts[i].s * magjtr
-                vorts[j].vz += dx * vorts[i].s * magjtr
-                
-                vorts[i].vx += dz * vorts[j].s * magitr
-                vorts[i].vz -= dx * vorts[j].s * magitr
-            end
-            
-            w[i] += vorts[j].s*vorts[j].vc^4/(pi*(dsq^2 + vorts[j].vc^4)^1.5)
-            w[j] += vorts[i].s*vorts[i].vc^4/(pi*(dsq^2 + vorts[i].vc^4)^1.5)
-
-            wx[i] -= 6*vorts[j].s*vorts[j].vc^4*dx*dsq/(pi*(vorts[j].vc^4 + dsq^2)^2.5)
-            wx[j] += 6*vorts[i].s*vorts[i].vc^4*dx*dsq/(pi*(vorts[i].vc^4 + dsq^2)^2.5)
-
-            wz[i] -= 6*vorts[j].s*vorts[j].vc^4*dz*dsq/(pi*(vorts[j].vc^4 + dsq^2)^2.5)
-            wz[j] += 6*vorts[i].s*vorts[i].vc^4*dz*dsq/(pi*(vorts[i].vc^4 + dsq^2)^2.5)
-
-            w_lap[i] += 60*vorts[j].s*vorts[j].vc^4*dsq^3/(pi*(vorts[j].vc^4 + dsq^2)^3.5) - 24*vorts[j].s*vorts[j].vc^4*dsq/(pi*(vorts[j].vc^4 + dsq^2)^2.5)  
-            w_lap[j] += 60*vorts[i].s*vorts[i].vc^4*dsq^3/(pi*(vorts[i].vc^4 + dsq^2)^3.5) - 24*vorts[i].s*vorts[i].vc^4*dsq/(pi*(vorts[i].vc^4 + dsq^2)^2.5)
+			# Fluid velocity (exc. diffusion velocity)
+            magitr = (1 - exp(-dsq / vorts[j].vc^2)) /(2*pi*dsq)
+            magjtr = (1 - exp(-dsq / vorts[i].vc^2)) /(2*pi*dsq)
+            vorts[i].vx +=  dz * vorts[j].s * magitr
+            vorts[i].vz -=  dx * vorts[j].s * magitr
+            vorts[j].vx += -dz * vorts[i].s * magjtr
+            vorts[j].vz -= -dx * vorts[i].s * magjtr
+			# Vorticity
+            w[i] += vorts[j].s * exp(-dsq/vorts[j].vc^2) / (pi * vorts[j].vc^2)
+            w[j] += vorts[i].s * exp(-dsq/vorts[i].vc^2) / (pi * vorts[i].vc^2)
+			# Vorticity derivatives
+            wx[i] += -2 * vorts[j].s *  dx * exp(-dsq / vorts[j].vc^2) / (pi * vorts[j].vc^4)
+            wz[i] += -2 * vorts[j].s *  dz * exp(-dsq / vorts[j].vc^2) / (pi * vorts[j].vc^4)
+            wx[j] += -2 * vorts[i].s * -dx * exp(-dsq / vorts[i].vc^2) / (pi * vorts[i].vc^4)
+            wz[j] += -2 * vorts[i].s * -dz * exp(-dsq / vorts[i].vc^2) / (pi * vorts[i].vc^4)
+            # Vorticity Laplacians
+            w_lap[i] += -4 * vorts[j].s * (vorts[j].vc^2 - dsq) * exp(-dsq / vorts[j].vc^2) / (pi * vorts[j].vc^6)  
+            w_lap[j] += -4 * vorts[i].s * (vorts[i].vc^2 - dsq) * exp(-dsq / vorts[i].vc^2) / (pi * vorts[i].vc^6)  
+            # We'd like to know about errors sooner rather than later.
+            @assert(isfinite(w_lap[i]))
+            @assert(isfinite(w_lap[j]))
+            @assert(isfinite(w[i]))
+            @assert(isfinite(w[j]))
         end
     end
 
+	# Self effect
     for i = 1:n
         if typeof(vorts[i]) == TwoDVVort
-            vorts[i].vx -= nu*wx[i]/w[i]
-            vorts[i].vz -= nu*wz[i]/w[i]
-            vorts[i].dvc = vots[i].vc^2*nu*((wx[i]^2 + wz[i]^2)/w[i]^2 - w_lap[i]/w[i])
+            w[i]        += wself        = vorts[i].s / (pi * vorts[i].vc^2)
+            # First derivative influences are 0
+            w_lap[i]    += wself_lap    = -4 * vorts[i].s / (pi * vorts[i].vc^4)
+            @assert(vorts[i].s == 0 ? true : wself_lap / wself < 0, 
+                "Self incluence should have correct"*
+                " sign such that core expands if isolated. "*
+                string(-vorts[i].vc^2 * wself_lap/wself)*" should be about 4.")
+        end
+	end
+	
+    for i = 1:n
+        if typeof(vorts[i]) == TwoDVVort
+            # Diffusion velocity 
+            vorts[i].vx += -nu*wx[i]/w[i]
+            vorts[i].vz += -nu*wz[i]/w[i]
+			# Rate of core expansion
+            vorts[i].dvc = vorts[i].vc^2 * nu * ((wx[i]^2 + wz[i]^2)/w[i]^2 - w_lap[i]/w[i])   
+            @assert(isfinite(vorts[i].dvc), "NaN or Inf vortex core radius derivative.")
+            @assert(vorts[i].dvc >= 0, "Vortex cores should not shrink!\n"*
+                "Vortex particle "*string(i)*" of "*string(n)*"\n"*
+                "( wx[i]^2 + wz[i]^2 ) / w[i]^2 \t= "*string((wx[i]^2 + wz[i]^2)/w[i]^2)*  
+                "\n-w_lap[i] / w[i] \t\t= "*string(-w_lap[i]/w[i])*"\nCore radius = "*
+                string(vorts[i].vc)*".")
         end
     end
-    
     return vorts
 end
 
+function regularised_functions
+
+end
 
 # function mutual_ind(vorts::Vector{TwoDVVort}, nu::Float64)
 
@@ -950,5 +999,15 @@ function update_kinem2DOF(surf::TwoDSurf, strpar :: TwoDOFPar, kinem :: KinemPar
     return surf, kinem
 end
 
-
+function vortex_type(field::TwoDFlowFieldAbstract)
+    if typeof(field)==TwoDFlowField
+        VortType = TwoDVort
+    elseif  typeof(field)==TwoDVFlowField
+        VortType = TwoDVVort
+    else
+        @error("Vortex field type not recognised / implemented. Field"*
+            " type was "*string(typeof(field)))
+    end
+    return VortType
+end
     

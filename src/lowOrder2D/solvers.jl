@@ -39,7 +39,7 @@ Simulates potential flow for an airfoil undergoing unsteady motion
     Dyn. (2013) 27: 843. [Weblink](https://doi.org/10.1007/s00162-012-0292-8)
 
 """
-function lautat(surf::TwoDSurf, curfield::TwoDFlowField, nsteps::Int64 = 500, dtstar::Float64 = 0.015, startflag = 0, writeflag = 0, writeInterval = 1000., delvort = delNone(); maxwrite = 50, nround=6, wakerollup=1)
+function lautat(surf::TwoDSurf, curfield::TwoDFlowFieldAbstract, nsteps::Int64 = 500, dtstar::Float64 = 0.015, startflag = 0, writeflag = 0, writeInterval = 1000., delvort = delNone(); maxwrite = 50, nround=6, wakerollup=1)
 
     # If a restart directory is provided, read in the simulation data
     if startflag == 0
@@ -111,6 +111,7 @@ function lautat(surf::TwoDSurf, curfield::TwoDFlowField, nsteps::Int64 = 500, dt
 
         #Wake rollup if flag on
         if wakerollup == 1
+            display(curfield.tev)
             wakeroll(surf, curfield, dt)
         end
         

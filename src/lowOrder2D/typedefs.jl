@@ -1,3 +1,9 @@
+
+"""
+All kinds of 2D vortex particle are a subtype of TwoDVortAbstract
+"""
+abstract type TwoDVortAbstract end
+
 """
     TwoDVort(x,z,s,vc,vx,vz)
 
@@ -8,16 +14,35 @@ radius `vc`.
 interaction calculations
 
 """
-mutable struct  TwoDVort
+mutable struct  TwoDVort <: TwoDVortAbstract
     x :: Float64
     z :: Float64
     s :: Float64
     vc :: Float64
     vx :: Float64
     vz :: Float64
+    function TwoDVort(x::Real, y::Real, strength::Real, vcorerad::Real,
+            xvel::Real, yvel::Real)
+        @assert(isfinite(x))
+        @assert(isfinite(y))
+        @assert(isfinite(strength))
+        @assert(isfinite(vcorerad))
+        @assert(vcorerad >= 0)
+        @assert(isfinite(xvel))
+        @assert(isfinite(yvel))
+        new(x, y, strength, vcorerad, xvel, yvel)
+    end
+    function TwoDVort(x::Real, y::Real, strength::Real, vcorerad::Real)
+        return TwoDVort(x, y, strength, vcorerad, 0, 0)
+    end
 end
 
-mutable struct  TwoDVVort
+function Base.show(io::IO, vor::TwoDVort)
+    @printf(io, "TwoDVVort{x=[% 06.4f, % 06.4f], s=% 06.4f, vc=% 06.4f, vel=[% 06.4f, % 06.4f]}",
+        vor.x, vor.z, vor.s, vor.vc, vor.vx, vor.vz)
+end
+
+mutable struct  TwoDVVort <: TwoDVortAbstract
     x :: Float64
     z :: Float64
     s :: Float64
@@ -25,10 +50,38 @@ mutable struct  TwoDVVort
     vx :: Float64
     vz :: Float64
     dvc :: Float64
+    function TwoDVVort(x::Real, y::Real, strength::Real, vcorerad::Real,
+            xvel::Real, yvel::Real, dvc::Real)
+        @assert(isfinite(x))
+        @assert(isfinite(y))
+        @assert(isfinite(strength))
+        @assert(isfinite(vcorerad))
+        @assert(vcorerad >= 0)
+        @assert(isfinite(xvel))
+        @assert(isfinite(yvel))
+        @assert(isfinite(dvc))
+        new(x, y, strength, vcorerad, xvel, yvel, dvc)
+    end
+    function TwoDVVort(x::Real, y::Real, strength::Real, vcorerad::Real)
+        return TwoDVVort(x, y, strength, vcorerad, 0, 0, 0)
+    end
+    function TwoDVVort(x::Real, y::Real, strength::Real, vcorerad::Real, 
+        xvel::Real, yvel::Real)
+        return TwoDVVort(x, y, strength, vcorerad, xvel, yvel, 0)
+    end
 end
 
+function Base.show(io::IO, vor::TwoDVVort)
+    @printf(io, "TwoDVVort{x=[% 06.4f, % 06.4f], s=% 06.4f, vc=% 06.4f, vel=[% 06.4f, % 06.4f], dvc=% 06.4f}",
+        vor.x, vor.z, vor.s, vor.vc, vor.vx, vor.vz, vor.dvc)
+end
 
-struct TwoDFlowField
+"""
+All kinds of TwoDFlowField are a subtype of TwoDFlowFieldAbstract
+"""
+abstract type TwoDFlowFieldAbstract end
+
+struct TwoDFlowField <: TwoDFlowFieldAbstract
     velX :: MotionDef
     velZ :: MotionDef
     u :: Vector{Float64}
@@ -46,7 +99,7 @@ struct TwoDFlowField
     end
 end
 
-struct TwoDVFlowField
+struct TwoDVFlowField <: TwoDFlowFieldAbstract
     velX :: MotionDef
     velZ :: MotionDef
     u :: Vector{Float64}
@@ -54,14 +107,51 @@ struct TwoDVFlowField
     tev :: Vector{TwoDVVort}
     lev :: Vector{TwoDVVort}
     extv :: Vector{TwoDVVort}
-    Re :: Float64
-    function TwoDVFlowField(Re, velX = ConstDef(0.), velZ = ConstDef(0.))
+    kinematic_visc :: Float64
+    function TwoDVFlowField(kinematic_visc::Real, velX = ConstDef(0.), velZ = ConstDef(0.))
+        @assert(kinematic_visc > 0, "Kinematic viscosity must be positive or 0. Given "*string(kinematic_visc)*".")
         u = [0;]
         w = [0;]
         tev = TwoDVVort[]
         lev = TwoDVVort[]
         extv = TwoDVVort[]
-        new(velX, velZ, u, w, tev, lev, extv, Re)
+        new(velX, velZ, u, w, tev, lev, extv, kinematic_visc)
+    end
+end
+
+struct TwoDRegularisation
+    vx :: Function
+    vz :: Function
+    omega :: Function
+    omega_dr :: Function
+    omega_lap :: Function
+    function TwoDRegularisation(type::String)
+        # Trying to be clever is probably a terrible idea... But 
+        # one could use ForwardDiff. Just sayin'.
+        implemented = Set([("singular", "Vatistas", "Gaussian")])
+        if type == "singular"
+            vx = (gamma, r, dx, dz, corrad)-> gamma .* dz ./ (r.^2 .* 2*pi)
+            vz = (gamma, r, dx, dz, corrad)->-gamma .* dx ./ (r.^2 .* 2*pi)
+            omega = (gamma, r, dx, dz, corrad)->map(R->R==0 ? Inf : 0, r)
+            omega_dr = (gamma, r, dx, dz, corrad)->map(R->R==0 ? NaN : 0, r)
+            omega_lap = (gamma, r, dx, dz, corrad)->map(R->R==0 ? NaN : 0, r)
+        elseif type == "Vatistas"
+            vx = (gamma, r, dx, dz, corrad)-> gamma .* dz ./ (sqrt(r.^4 .+ corrad.^4).* 2*pi)
+            vz = (gamma, r, dx, dz, corrad)->-gamma .* dx ./ (sqrt(r.^4 .+ corrad.^4).* 2*pi)
+            omega = (gamma, r, dx, dz, corrad)->gamma .* corrad.^4 ./ (r.^4 .+ corrad.^4).^(3/2)
+            omega_dr = (gamma, r, dx, dz, corrad)->-6 .*gamma.*r.^3 .* corrad.^4 / (pi .* (corrad.^4 + r.^4).^(5/2))
+            omega_lap = (gamma, r, dx, dz, corrad)->-30 .*gamma.*r.^2 .*corrad.^2 .*(corrad.^4 - r.^4) ./ (pi .* (corrad.^4 + r.^4).^(7/2))
+        elseif type == "Gaussian"
+            vx = (gamma, r, dx, dz, corrad)-> gamma .* dz .* (1 .- exp.(.-(r./corrad).^2 ./ 2)) ./ (r.^2 .* 2*pi)
+            vz = (gamma, r, dx, dz, corrad)->-gamma .* dx .* (1 .- exp.(.-(r./corrad).^2 ./ 2)) ./ (r.^2 .* 2*pi)
+            omega = (gamma, r, dx, dz, corrad)->gamma .* exp.(.-(r./corrad).^2 ./ 2) ./ (2*pi .* corrad.^2)
+            omega_dr = (gamma, r, dx, dz, corrad)->-gamma .* r .* exp.(.-(r./corrad).^2 ./ 2) ./ (2*pi .* corrad.^4)
+            omega_lap =  (gamma, r, dx, dz, corrad)->-gamma .* (3 .*corrad.^2 .- r.^2) .* exp.(.-(r./corrad).^2 ./ 2) ./ (2*pi .* corrad.^6)
+        else
+            @error("Invalid TwoDRegularisation choice string. Implemented"*
+                " regularisations are "*string(implemented)*".")
+        end
+        return new(vx, vz, omega, omega_dr, omega_lap)
     end
 end
 
@@ -235,7 +325,7 @@ end
 
 struct KelvinCondition
     surf :: TwoDSurf
-    field :: TwoDFlowField
+    field :: TwoDFlowFieldAbstract
 end
 
 function (kelv::KelvinCondition)(tev_iter::Array{Float64})
