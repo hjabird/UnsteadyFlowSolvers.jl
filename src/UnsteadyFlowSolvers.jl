@@ -14,18 +14,19 @@ import NLsolve: nlsolve, not_in_place
 
 import Statistics: mean
 
-import PyPlot: plot, scatter, figure, xlabel, ylabel, xlim, ylim,
-    xticks, yticks, subplot, subplot2grid, legend, axis, savefig,
-    close, tight_layout
+import LinearAlgebra
+
+import Dates
 
 import Plots: @layout
 
+import PyPlot: plot, scatter, figure, xlabel, ylabel, xlim, ylim,
+    xticks, yticks, subplot, subplot2grid, legend, axis, savefig,
+    close, tight_layout, clf, title, show, pause
+
 import LaTeXStrings: @L_str
 
-#For use in development and debugging
-import Revise
-
-import Printf: @printf
+import DataStructures
 
 export
     # kinematics types and funtions
@@ -36,6 +37,7 @@ export
     EldUptstartDef,
     ConstDef,
     EldRampReturnDef,
+    EldRampReturntstartDef,
     EldUpIntDef,
     EldUpInttstartDef,
     SinDef,
@@ -46,9 +48,7 @@ export
     TwoDOFPar,
     KinemPar2DOF,
     TwoDVort,
-    TwoDVVort,
     TwoDFlowField,
-    TwoDVFlowField,
     KelvinCondition,
     KelvinKutta,
 
@@ -69,10 +69,18 @@ export
     ldvm,
     ldvmLin,
     ldvm2DOF,
+    LVE,
 
     # 2D plot output functions
     makeForcePlots2D,
-    makeVortPlots2D
+    makeVortPlots2D,
+    subPlot,
+
+    # XFOIL Wrapper
+    xfoilWrapper,
+
+    # User Interface
+    runUI
 
 ### source files
 
@@ -89,9 +97,19 @@ include("delVort.jl")
 include("lowOrder2D/typedefs.jl")            # type definitions
 include("lowOrder2D/calcs.jl")               # calculation functions
 include("lowOrder2D/solvers.jl")             # solver methods
-include("lowOrder2D/postprocess.jl")         # postprocessing functions
+include("lowOrder2D/LVE.jl")                 # Lumped Vortex Element method
+include("lowOrder2D/postprocess.jl")
 
 # 2D plotting functions
 include("plots/plots2D.jl")
+
+# XFOIL Wrapper
+include("xfoil/XfoilWrapper.jl")
+
+# User Interface
+include("UI/UI_main.jl")
+include("UI/UI_utils.jl")
+include("UI/s1Cmds.jl")
+include("UI/s2Cmds.jl")
 
 end

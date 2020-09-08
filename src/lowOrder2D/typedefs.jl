@@ -1,9 +1,3 @@
-
-"""
-All kinds of 2D vortex particle are a subtype of TwoDVortAbstract
-"""
-abstract type TwoDVortAbstract end
-
 """
     TwoDVort(x,z,s,vc,vx,vz)
 
@@ -14,74 +8,16 @@ radius `vc`.
 interaction calculations
 
 """
-mutable struct  TwoDVort <: TwoDVortAbstract
+mutable struct  TwoDVort
     x :: Float64
     z :: Float64
     s :: Float64
     vc :: Float64
     vx :: Float64
     vz :: Float64
-    function TwoDVort(x::Real, y::Real, strength::Real, vcorerad::Real,
-            xvel::Real, yvel::Real)
-        @assert(isfinite(x))
-        @assert(isfinite(y))
-        @assert(isfinite(strength))
-        @assert(isfinite(vcorerad))
-        @assert(vcorerad >= 0)
-        @assert(isfinite(xvel))
-        @assert(isfinite(yvel))
-        new(x, y, strength, vcorerad, xvel, yvel)
-    end
-    function TwoDVort(x::Real, y::Real, strength::Real, vcorerad::Real)
-        return TwoDVort(x, y, strength, vcorerad, 0, 0)
-    end
 end
 
-function Base.show(io::IO, vor::TwoDVort)
-    @printf(io, "TwoDVVort{x=[% 06.4f, % 06.4f], s=% 06.4f, vc=% 06.4f, vel=[% 06.4f, % 06.4f]}",
-        vor.x, vor.z, vor.s, vor.vc, vor.vx, vor.vz)
-end
-
-mutable struct  TwoDVVort <: TwoDVortAbstract
-    x :: Float64
-    z :: Float64
-    s :: Float64
-    vc :: Float64
-    vx :: Float64
-    vz :: Float64
-    dvc :: Float64
-    function TwoDVVort(x::Real, y::Real, strength::Real, vcorerad::Real,
-            xvel::Real, yvel::Real, dvc::Real)
-        @assert(isfinite(x))
-        @assert(isfinite(y))
-        @assert(isfinite(strength))
-        @assert(isfinite(vcorerad))
-        @assert(vcorerad >= 0)
-        @assert(isfinite(xvel))
-        @assert(isfinite(yvel))
-        @assert(isfinite(dvc))
-        new(x, y, strength, vcorerad, xvel, yvel, dvc)
-    end
-    function TwoDVVort(x::Real, y::Real, strength::Real, vcorerad::Real)
-        return TwoDVVort(x, y, strength, vcorerad, 0, 0, 0)
-    end
-    function TwoDVVort(x::Real, y::Real, strength::Real, vcorerad::Real, 
-        xvel::Real, yvel::Real)
-        return TwoDVVort(x, y, strength, vcorerad, xvel, yvel, 0)
-    end
-end
-
-function Base.show(io::IO, vor::TwoDVVort)
-    @printf(io, "TwoDVVort{x=[% 06.4f, % 06.4f], s=% 06.4f, vc=% 06.4f, vel=[% 06.4f, % 06.4f], dvc=% 06.4f}",
-        vor.x, vor.z, vor.s, vor.vc, vor.vx, vor.vz, vor.dvc)
-end
-
-"""
-All kinds of TwoDFlowField are a subtype of TwoDFlowFieldAbstract
-"""
-abstract type TwoDFlowFieldAbstract end
-
-struct TwoDFlowField <: TwoDFlowFieldAbstract
+struct TwoDFlowField
     velX :: MotionDef
     velZ :: MotionDef
     u :: Vector{Float64}
@@ -96,62 +32,6 @@ struct TwoDFlowField <: TwoDFlowFieldAbstract
         lev = TwoDVort[]
         extv = TwoDVort[]
         new(velX, velZ, u, w, tev, lev, extv)
-    end
-end
-
-struct TwoDVFlowField <: TwoDFlowFieldAbstract
-    velX :: MotionDef
-    velZ :: MotionDef
-    u :: Vector{Float64}
-    w :: Vector{Float64}
-    tev :: Vector{TwoDVVort}
-    lev :: Vector{TwoDVVort}
-    extv :: Vector{TwoDVVort}
-    kinematic_visc :: Float64
-    function TwoDVFlowField(kinematic_visc::Real, velX = ConstDef(0.), velZ = ConstDef(0.))
-        @assert(kinematic_visc > 0, "Kinematic viscosity must be positive or 0. Given "*string(kinematic_visc)*".")
-        u = [0;]
-        w = [0;]
-        tev = TwoDVVort[]
-        lev = TwoDVVort[]
-        extv = TwoDVVort[]
-        new(velX, velZ, u, w, tev, lev, extv, kinematic_visc)
-    end
-end
-
-struct TwoDRegularisation
-    vx :: Function
-    vz :: Function
-    omega :: Function
-    omega_dr :: Function
-    omega_lap :: Function
-    function TwoDRegularisation(type::String)
-        # Trying to be clever is probably a terrible idea... But 
-        # one could use ForwardDiff. Just sayin'.
-        implemented = Set([("singular", "Vatistas", "Gaussian")])
-        if type == "singular"
-            vx = (gamma, r, dx, dz, corrad)-> gamma .* dz ./ (r.^2 .* 2*pi)
-            vz = (gamma, r, dx, dz, corrad)->-gamma .* dx ./ (r.^2 .* 2*pi)
-            omega = (gamma, r, dx, dz, corrad)->map(R->R==0 ? Inf : 0, r)
-            omega_dr = (gamma, r, dx, dz, corrad)->map(R->R==0 ? NaN : 0, r)
-            omega_lap = (gamma, r, dx, dz, corrad)->map(R->R==0 ? NaN : 0, r)
-        elseif type == "Vatistas"
-            vx = (gamma, r, dx, dz, corrad)-> gamma .* dz ./ (sqrt(r.^4 .+ corrad.^4).* 2*pi)
-            vz = (gamma, r, dx, dz, corrad)->-gamma .* dx ./ (sqrt(r.^4 .+ corrad.^4).* 2*pi)
-            omega = (gamma, r, dx, dz, corrad)->gamma .* corrad.^4 ./ (r.^4 .+ corrad.^4).^(3/2)
-            omega_dr = (gamma, r, dx, dz, corrad)->-6 .*gamma.*r.^3 .* corrad.^4 / (pi .* (corrad.^4 + r.^4).^(5/2))
-            omega_lap = (gamma, r, dx, dz, corrad)->-30 .*gamma.*r.^2 .*corrad.^2 .*(corrad.^4 - r.^4) ./ (pi .* (corrad.^4 + r.^4).^(7/2))
-        elseif type == "Gaussian"
-            vx = (gamma, r, dx, dz, corrad)-> gamma .* dz .* (1 .- exp.(.-(r./corrad).^2 ./ 2)) ./ (r.^2 .* 2*pi)
-            vz = (gamma, r, dx, dz, corrad)->-gamma .* dx .* (1 .- exp.(.-(r./corrad).^2 ./ 2)) ./ (r.^2 .* 2*pi)
-            omega = (gamma, r, dx, dz, corrad)->gamma .* exp.(.-(r./corrad).^2 ./ 2) ./ (2*pi .* corrad.^2)
-            omega_dr = (gamma, r, dx, dz, corrad)->-gamma .* r .* exp.(.-(r./corrad).^2 ./ 2) ./ (2*pi .* corrad.^4)
-            omega_lap =  (gamma, r, dx, dz, corrad)->-gamma .* (3 .*corrad.^2 .- r.^2) .* exp.(.-(r./corrad).^2 ./ 2) ./ (2*pi .* corrad.^6)
-        else
-            @error("Invalid TwoDRegularisation choice string. Implemented"*
-                " regularisations are "*string(implemented)*".")
-        end
-        return new(vx, vz, omega, omega_dr, omega_lap)
     end
 end
 
@@ -184,8 +64,8 @@ struct TwoDSurf
     levflag :: Vector{Int8}
     initpos :: Vector{Float64}
     rho :: Float64
-    
-    function TwoDSurf(coord_file, pvt, kindef,lespcrit=zeros(1); c=1., uref=1., ndiv=70, naterm=35, initpos = [0.; 0.], rho = 0.04)
+
+    function TwoDSurf(coord_file, pvt, kindef,lespcrit=zeros(1); c=1., uref=1., ndiv=70, naterm=35, initpos = [0.; 0.], rho = 0.04, camberType = "radial")
         theta = zeros(ndiv)
         x = zeros(ndiv)
         cam = zeros(ndiv)
@@ -194,11 +74,19 @@ struct TwoDSurf
         bnd_z = zeros(ndiv)
         kinem = KinemPar(0, 0, 0, 0, 0, 0)
 
-        dtheta = pi/(ndiv-1)
-        for ib = 1:ndiv
-            theta[ib] = (ib-1.)*dtheta
-            x[ib] = c/2. *(1-cos(theta[ib]))
+        if camberType == "radial"
+            dtheta = pi/(ndiv-1)
+            for ib = 1:ndiv
+                theta[ib] = (ib-1.)*dtheta
+                x[ib] = c/2. *(1-cos(theta[ib]))
+            end
+        elseif camberType == "linear"
+            dx = c / (ndiv-1)
+            for ib = 2:ndiv
+                x[ib] = x[ib-1] + dx
+            end
         end
+
         if (coord_file != "FlatPlate")
             cam, cam_slope = camber_calc(x, coord_file)
         end
@@ -222,6 +110,9 @@ struct TwoDSurf
         elseif (typeof(kindef.alpha) == CosDef)
             kinem.alpha = kindef.alpha(0.)
             kinem.alphadot = ForwardDiff.derivative(kindef.alpha,0.)*uref/c
+        elseif (typeof(kindef.alpha) == FileDef)
+            kinem.alpha = kindef.alpha(0.)
+            kinem.alphadot = ForwardDiff.derivative(kindef.alpha,0.)*uref/c
         end
 
         if (typeof(kindef.h) == EldUpDef)
@@ -242,6 +133,9 @@ struct TwoDSurf
         elseif (typeof(kindef.h) == CosDef)
             kinem.h = kindef.h(0.)*c
             kinem.hdot = ForwardDiff.derivative(kindef.h,0.)*uref
+        elseif (typeof(kindef.h) == FileDef)
+            kinem.h = kindef.h(0.)
+            kinem.hdot = ForwardDiff.derivative(kindef.h,0.)*uref
         end
 
         if (typeof(kindef.u) == EldUpDef)
@@ -254,6 +148,9 @@ struct TwoDSurf
         elseif (typeof(kindef.u) == ConstDef)
             kinem.u = kindef.u(0.)*uref
             kinem.udot = 0.
+        elseif (typeof(kindef.alpha) == FileDef)
+            kinem.u = kindef.u(0.)*uref
+            kinem.udot = ForwardDiff.derivative(kindef.u,0.)*uref*uref/c
         end
 
         for i = 1:ndiv
@@ -325,7 +222,7 @@ end
 
 struct KelvinCondition
     surf :: TwoDSurf
-    field :: TwoDFlowFieldAbstract
+    field :: TwoDFlowField
 end
 
 function (kelv::KelvinCondition)(tev_iter::Array{Float64})
@@ -334,7 +231,7 @@ function (kelv::KelvinCondition)(tev_iter::Array{Float64})
     ntev = length(kelv.field.tev)
 
     uprev, wprev = ind_vel([kelv.field.tev[ntev]], kelv.surf.bnd_x, kelv.surf.bnd_z)
-    
+
     #Update the TEV strength
     kelv.field.tev[ntev].s = tev_iter[1]
 
@@ -342,7 +239,7 @@ function (kelv::KelvinCondition)(tev_iter::Array{Float64})
 
     kelv.surf.uind[:] = kelv.surf.uind[:] .- uprev .+ unow
     kelv.surf.wind[:] = kelv.surf.wind[:] .- wprev .+ wnow
-    
+
     #Calculate downwash
     update_downwash(kelv.surf, [kelv.field.u[1],kelv.field.w[1]])
 
@@ -366,10 +263,10 @@ function (kelv::KelvinConditionMult)(tev_iter::Array{Float64})
     nsurf = length(kelv.surf)
 
     val = zeros(nsurf)
-    
+
     nlev = length(kelv.field.lev)
     ntev = length(kelv.field.tev)
-    
+
     tev_list = kelv.field.tev[ntev-nsurf+1:ntev]
     for i = 1:nsurf
 
@@ -380,7 +277,7 @@ function (kelv::KelvinConditionMult)(tev_iter::Array{Float64})
             end
         end
         uprev, wprev = ind_vel([tev_list; bv_list], kelv.surf[i].bnd_x, kelv.surf[i].bnd_z)
-    
+
         #Update the TEV strength
         kelv.field.tev[ntev-nsurf+i].s = tev_iter[i]
 
@@ -388,18 +285,18 @@ function (kelv::KelvinConditionMult)(tev_iter::Array{Float64})
 
         kelv.surf[i].uind[:] = kelv.surf[i].uind[:] .- uprev .+ unow
         kelv.surf[i].wind[:] = kelv.surf[i].wind[:] .- wprev .+ wnow
-    
+
         #Calculate downwash
         update_downwash(kelv.surf[i], [kelv.field.u[1],kelv.field.w[1]])
     end
-    
+
     for i = 1:nsurf
         #Update Fourier coefficients and bv strength
         update_a0anda1(kelv.surf[i])
         update_a2toan(kelv.surf[i])
         update_bv(kelv.surf[i])
-        
-        
+
+
         val[i] = kelv.surf[i].uref*kelv.surf[i].c*pi*(kelv.surf[i].a0[1] + kelv.surf[i].aterm[1]/2.) -
             kelv.surf[i].uref*kelv.surf[i].c*pi*(kelv.surf[i].a0prev[1] + kelv.surf[i].aprev[1]/2.) +
             kelv.field.tev[ntev-nsurf+i].s
@@ -415,12 +312,12 @@ end
 
 function (kelv::KelvinKutta)(v_iter::Array{Float64})
     val = zeros(2)
-    
+
     nlev = length(kelv.field.lev)
     ntev = length(kelv.field.tev)
 
     uprev, wprev = ind_vel([kelv.field.tev[ntev]; kelv.field.lev[nlev]], kelv.surf.bnd_x, kelv.surf.bnd_z)
-    
+
     #Update the TEV and LEV strengths
     kelv.field.tev[ntev].s = v_iter[1]
     kelv.field.lev[nlev].s = v_iter[2]
@@ -429,17 +326,17 @@ function (kelv::KelvinKutta)(v_iter::Array{Float64})
 
     kelv.surf.uind[:] = kelv.surf.uind[:] .- uprev .+ unow
     kelv.surf.wind[:] = kelv.surf.wind[:] .- wprev .+ wnow
-    
+
     #Calculate downwash
     update_downwash(kelv.surf ,[kelv.field.u[1],kelv.field.w[1]])
 
     #Calculate first two fourier coefficients
     update_a0anda1(kelv.surf)
 
-    val[1] = kelv.surf.uref*kelv.surf.c*pi*(kelv.surf.a0[1] + kelv.surf.aterm[1]/2.) - 
+    val[1] = kelv.surf.uref*kelv.surf.c*pi*(kelv.surf.a0[1] + kelv.surf.aterm[1]/2.) -
         kelv.surf.uref*kelv.surf.c*pi*(kelv.surf.a0prev[1] + kelv.surf.aprev[1]/2.) +
         kelv.field.tev[ntev].s + kelv.field.lev[nlev].s
-    
+
     if (kelv.surf.a0[1] > 0)
         lesp_cond = kelv.surf.lespcrit[1]
     else
@@ -463,7 +360,7 @@ function (kelv::KelvinKuttaMult)(v_iter::Array{Float64})
 
     nlev = length(kelv.field.lev)
     ntev = length(kelv.field.tev)
-    
+
     tev_list = kelv.field.tev[ntev-nsurf+1:ntev]
     lev_list = kelv.field.lev[nlev-nsurf.+kelv.shed_ind]
 
@@ -476,20 +373,20 @@ function (kelv::KelvinKuttaMult)(v_iter::Array{Float64})
             end
         end
         uprev, wprev = ind_vel([tev_list; lev_list; bv_list], kelv.surf[i].bnd_x, kelv.surf[i].bnd_z)
-        
+
         #Update the shed vortex strengths
         kelv.field.tev[ntev-nsurf+i].s = v_iter[i]
-    
+
         if i in kelv.shed_ind
             levcount += 1
             kelv.field.lev[nlev-nsurf+i].s = v_iter[nsurf+levcount]
-        end            
+        end
 
         unow, wnow = ind_vel([tev_list; lev_list; bv_list], kelv.surf[i].bnd_x, kelv.surf[i].bnd_z)
 
         kelv.surf[i].uind[:] = kelv.surf[i].uind[:] .- uprev .+ unow
         kelv.surf[i].wind[:] = kelv.surf[i].wind[:] .- wprev .+ wnow
-        
+
         #Calculate downwash
         update_downwash(kelv.surf[i], [kelv.field.u[1],kelv.field.w[1]])
     end
@@ -511,13 +408,105 @@ function (kelv::KelvinKuttaMult)(v_iter::Array{Float64})
             else
                 lesp_cond = -kelv.surf[i].lespcrit[1]
             end
-            
+
             val[levcount+nsurf] = kelv.surf[i].a0[1] - lesp_cond
         else
             val[i] = kelv.surf[i].uref*kelv.surf[i].c*pi*(kelv.surf[i].a0[1] + kelv.surf[i].aterm[1]/2.) -
                 kelv.surf[i].uref*kelv.surf[i].c*pi*(kelv.surf[i].a0prev[1] + kelv.surf[i].aprev[1]/2.) +
                 kelv.field.tev[ntev-nsurf+i].s
         end
-    end   
+    end
     return val
+end
+
+mutable struct meshgrid
+    t :: Float64
+    alpha :: Float64
+    tev :: Array{Float64}
+    lev :: Array{Float64}
+    camX :: Vector{Float64}
+    camZ :: Vector{Float64}
+    x :: Array{Float64}
+    z :: Array{Float64}
+    uMat :: Array{Float64}
+    wMat :: Array{Float64}
+    velMag :: Array{Float64}
+
+    function meshgrid(surf::TwoDSurf,tevs::Vector{TwoDVort},levs::Vector{TwoDVort},offset,t,width::Int64 = 100,view::String = "square")
+        farBnd = surf.x[end] + surf.c*offset
+        nearBnd = surf.x[1] - surf.c*offset
+        zBnd = ( farBnd - nearBnd ) / 2
+        if view == "wake"
+            farBnd = 2*farBnd
+        elseif view == "largewake"
+            farBnd = 3*farBnd
+            zBnd = 2*zBnd
+        elseif view == "longwake"
+            farBnd = 5*farBnd
+            zBnd = 2*zBnd
+        elseif view == "UI Window"
+            farBnd = 2*farBnd
+            zBnd = 3/4*farBnd
+        end
+
+        # Global frame translation
+        X0 = -surf.kindef.u(t)*t
+        Z0 = surf.kindef.h(t)
+
+        lowX = nearBnd + X0 - surf.pvt*surf.c
+        uppX = farBnd + X0 - surf.pvt*surf.c
+        lowZ = -zBnd + Z0
+        uppZ = zBnd + Z0
+
+        # Finding global camber line postion
+        camX, camZ = IFR(surf,surf.x,surf.cam,t)
+
+        # Creating meshgrid
+        step = (farBnd-nearBnd)/(width-1)
+        range = lowX:step:uppX
+        height = zBnd*2/step + 1
+        x = [ j for i = 1:height, j = range]
+
+        range = uppZ:-step:lowZ
+        z = [ i for i = range , j = 1:size(x,2)]
+
+        uMat = 0 .* x .+ surf.kinem.u
+        wMat = 0 .* x .+ surf.kinem.hdot
+        velMag = 0 .* x
+
+        t = 0
+        alpha = surf.kinem.alpha
+        circ = zeros(surf.ndiv-1)
+
+        tevX = []
+        tevZ = []
+        for i = 1:length(tevs)
+            vx = tevs[i].x
+            vz = tevs[i].z
+            if vx >= lowX && vx <= uppX
+                if vz >= lowZ && vz <= uppZ
+                    tevX = [tevX;vx]
+                    tevZ = [tevZ;vz]
+                end
+            end
+        end
+        tev = hcat(tevX,tevZ)
+        levX = []
+        levZ = []
+        if length(levs) > 0
+            for i = 1:length(levs)
+                vx = levs[i].x
+                vz = levs[i].z
+                if vx >= lowX && vx <= uppX
+                    if vz >= lowZ && vz <= uppZ
+                        levX = [levX;vx]
+                        levZ = [levZ;vz]
+                    end
+                end
+            end
+        end
+        lev = hcat(levX,levZ)
+
+        new(t,alpha,tev,lev,camX, camZ, x, z, uMat, wMat, velMag)
+    end
 end

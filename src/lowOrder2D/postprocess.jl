@@ -28,10 +28,18 @@ function calc_forces(surf::TwoDSurf, vels::Vector{Float64})
 
     #Pitching moment is clockwise or nose up positive
     cm = cn*surf.pvt - 2*pi*(((surf.kinem.u + vels[1])*cos(surf.kinem.alpha)/surf.uref + (surf.kinem.hdot - vels[2])*sin(surf.kinem.alpha)/surf.uref)*(surf.a0[1]/4. + surf.aterm[1]/4. - surf.aterm[2]/8.) + (surf.c/surf.uref)*(7. *surf.a0dot[1]/16. + 3. *surf.adot[1]/16. + surf.adot[2]/16. - surf.adot[3]/64.)) - nonl_m
-    return cl, cd, cm
+    return cl, cd, cm, cn
 end
 
-function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDFlowFieldAbstract)
+function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDFlowField)
+
+    try
+        cd("Step Files")
+    catch
+        mkdir("Step Files")
+        cd("Step Files")
+    end
+
     dirvec = readdir()
     if dirname in dirvec
         rm(dirname, recursive=true)
@@ -40,12 +48,12 @@ function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDF
     cd(dirname)
 
     f = open("timeKinem", "w")
-    Serialization.serialize(f, ["#time \t", "alpha (deg) \t", "h/c \t", "u/uref \t"])
+    println(f, "#time \t","alpha (deg) \t","h/c \t", "u/uref \t")
     DelimitedFiles.writedlm(f, [t, surf.kinem.alpha, surf.kinem.h, surf.kinem.u]')
     close(f)
 
     f = open("FourierCoeffs", "w")
-    Serialization.serialize(f, ["#Fourier coeffs (0-n) \t", "d/dt (Fourier coeffs) \n"])
+    println(f, "#Fourier coeffs (0-n) \t", "d/dt (Fourier coeffs) ")
     matfour = zeros(surf.naterm+1, 2)
     matfour[:,1] = [surf.a0[1];surf.aterm[:]]
     matfour[:,2] = [surf.a0dot[1];surf.adot[:]]
@@ -54,17 +62,40 @@ function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDF
 
     # f = open("forces", "w")
     # write(f, ["#cl \t", "cd \t", "cm \t", "Gamma \t", "cn \t", "cs \t", "cnc \t",
-    #           "cnnc \t", "nonl \t", "cm_n \t", "cm_pvt \t", "nonl_m \n"])
+    #           "cnnc \t", "nonl \t", "cm_n \t", "cm_pvt \t", "nonl_m  "])
     # cl, cd, cm, gamma, cn, cs, cnc, cncc, nonl, cm_n, cm_pvt, nonl_m = calc_forces_more(surf)
     # writedlm(f, [cl, cd, cm, gamma, cn, cs, cnc, cnnc, nonl, cm_n, cm_pvt, nonl_m])
     # close(f)
 
-    writeStamp(curfield.tev, "tev")
-    writeStamp(curfield.lev, "lev")
-    writeStamp(surf.bv, "boundv")
+    f = open("tev", "w")
+    println(f, "#strength \t", "x-position \t", "z-position  ")
+    tevmat = zeros(length(curfield.tev), 3)
+    for i = 1:length(curfield.tev)
+        tevmat[i,:] = [curfield.tev[i].s curfield.tev[i].x curfield.tev[i].z]
+    end
+    DelimitedFiles.writedlm(f, tevmat)
+    close(f)
+
+    f = open("lev", "w")
+    println(f, "#strength \t", "x-position \t", "z-position  ")
+    levmat = zeros(length(curfield.lev), 3)
+    for i = 1:length(curfield.lev)
+        levmat[i,:] = [curfield.lev[i].s curfield.lev[i].x curfield.lev[i].z]
+    end
+    DelimitedFiles.writedlm(f, levmat)
+    close(f)
+
+    f = open("boundv", "w")
+    println(f, "#strength \t", "x-position \t", "z-position  ")
+    bvmat = zeros(length(surf.bv), 3)
+    for i = 1:length(surf.bv)
+        bvmat[i,:] = [surf.bv[i].s surf.bv[i].x surf.bv[i].z]
+    end
+    DelimitedFiles.writedlm(f, bvmat)
+    close(f)
 
     f = open("delcp_edgevel", "w")
-    Serialization.serialize(f, ["#x \t", "delcp \t", "delcp_inner \t", "delcp_outer \t", "qu \t", "ql \n"])
+    println(f, "#x \t", "delcp \t", "delcp_inner \t", "delcp_outer \t", "qu \t", "ql  ")
     mat = zeros(length(surf.x), 6)
     mat[:,1] = surf.x[:]
     delcp, delcp_in, delcp_out = calc_delcp(surf, [curfield.u[1]; curfield.w[1]])
@@ -76,7 +107,8 @@ function writeStamp(dirname::String, t::Float64, surf::TwoDSurf, curfield::TwoDF
     mat[:,6] = ql[:]
     DelimitedFiles.writedlm(f, mat)
     close(f)
-    
+
+    cd("..")
     cd("..")
 end
 
@@ -91,12 +123,12 @@ function writeStamp(dirname::String, t::Float64, surf::Vector{TwoDSurf}, curfiel
     nsurf = length(surf)
     for i = 1:nsurf
         f = open("timeKinem-$i", "w")
-        Serialization.Serialization.serialize(f, ["#time \t", "alpha (deg) \t", "h/c \t", "u/uref \t"])
+        println(f, "#time \t", "alpha (deg) \t", "h/c \t", "u/uref \t")
         DelimitedFiles.writedlm(f, [t, surf[i].kinem.alpha, surf[i].kinem.h, surf[i].kinem.u]')
         close(f)
 
         f = open("FourierCoeffs-$i", "w")
-        Serialization.serialize(f, ["#Fourier coeffs (0-n) \t", "d/dt (Fourier coeffs) \n"])
+        println(f, "#Fourier coeffs (0-n) \t", "d/dt (Fourier coeffs)  ")
         matfour = zeros(surf[i].naterm+1, 2)
         matfour[:,1] = [surf[i].a0[1];surf[i].aterm[:]]
         matfour[:,2] = [surf[i].a0dot[1];surf[i].adot[:]]
@@ -105,69 +137,48 @@ function writeStamp(dirname::String, t::Float64, surf::Vector{TwoDSurf}, curfiel
 
         # f = open("forces", "w")
         # write(f, ["#cl \t", "cd \t", "cm \t", "Gamma \t", "cn \t", "cs \t", "cnc \t",
-        #           "cnnc \t", "nonl \t", "cm_n \t", "cm_pvt \t", "nonl_m \n"])
+        #           "cnnc \t", "nonl \t", "cm_n \t", "cm_pvt \t", "nonl_m  "])
         # cl, cd, cm, gamma, cn, cs, cnc, cncc, nonl, cm_n, cm_pvt, nonl_m = calc_forces_more(surf)
         # writedlm(f, [cl, cd, cm, gamma, cn, cs, cnc, cnnc, nonl, cm_n, cm_pvt, nonl_m])
         # close(f)
     end
 
-    writeStamp(curfield.tev, "tev")
-    writeStamp(curfield.lev, "lev"; remove_zero_rad_particles=true)
+    f = open("tev", "w")
+    println(f, "#strength \t", "x-position \t", "z-position  ")
+    tevmat = zeros(length(curfield.tev), 3)
+    for i = 1:length(curfield.tev)
+        tevmat[i,:] = [curfield.tev[i].s curfield.tev[i].x curfield.tev[i].z]
+    end
+    DelimitedFiles.writedlm(f, tevmat)
+    close(f)
+
+    f = open("lev", "w")
+    println(f, "#strength \t", "x-position \t", "z-position  ")
+    levmat = zeros(length(curfield.lev), 3)
+    levcount = 0
+    for i = 1:length(curfield.lev)
+        if curfield.lev[i].vc != 0.
+            levcount += 1
+            levmat[levcount,:] = [curfield.lev[i].s curfield.lev[i].x curfield.lev[i].z]
+        end
+    end
+
+    levmat = levmat[1:levcount,:]
+    DelimitedFiles.writedlm(f, levmat)
+    close(f)
+
+    for is = 1:nsurf
+        f = open("boundv-$is", "w")
+        println(f, "#strength \t", "x-position \t", "z-position  ")
+        bvmat = zeros(length(surf[is].bv), 3)
+        for i = 1:length(surf[is].bv)
+            bvmat[i,:] = [surf[is].bv[i].s surf[is].bv[i].x surf[is].bv[i].z]
+        end
+        DelimitedFiles.writedlm(f, bvmat)
+        close(f)
+    end
 
     cd("..")
-end
-
-function writeStamp(
-    particles::Vector{TwoDVort}, 
-    file::IOStream;
-    remove_zero_rad_particles=false)
-
-    @assert(!isreadonly(file), "Cannot write to readonly file stream.")
-    Serialization.serialize(file, ["#strength \t", "x-position \t", "z-position \n"])
-    pmat = zeros(length(particles), 3)
-    count = 0
-    for i = 1:length(particles)
-        if !remove_zero_rad_particles && particles[i].vc != 0.
-            count += 1
-            pmat[count,:] = [particles[i].s particles[i].x particles[i].z]
-        end
-    end
-    pmat = pmat[1:count,:]
-    DelimitedFiles.writedlm(file, pmat)
-    return
-end
-
-function writeStamp(
-    particles::Vector{TwoDVVort}, 
-    file::IOStream;
-    remove_zero_rad_particles=false)
-
-    @assert(!isreadonly(file), "Cannot write to readonly file stream.")
-    Serialization.serialize(file, 
-        ["#strength \t", "x-position \t", "z-position \t", "core_radius \n"])
-    pmat = zeros(length(particles), 4)
-    count = 0
-    for i = 1:length(particles)
-        if !remove_zero_rad_particles && particles[i].vc != 0.
-            count += 1
-            pmat[count,:] = [particles[i].s particles[i].x particles[i].z particles[i].vc]
-        end
-    end
-    pmat = pmat[1:count,:]
-    DelimitedFiles.writedlm(file, pmat)
-    return
-end
-
-function writeStamp(
-    particles::Vector{<:TwoDVortAbstract},
-    file_path::String;
-    remove_zero_rad_particles=false)
-
-    file = open(file_path, "w")
-    writeStamp(particles, file;
-        remove_zero_rad_particles=remove_zero_rad_particles)
-    close(file)
-    return
 end
 
 function calc_delcp(surf::TwoDSurf, vels::Vector{Float64})
@@ -178,16 +189,16 @@ function calc_delcp(surf::TwoDSurf, vels::Vector{Float64})
     gamint = zeros(surf.ndiv)
     p_com = zeros(surf.ndiv)
     gammod = zeros(surf.ndiv)
-      
+
     for i = 1:surf.ndiv
         udash = surf.kinem.u*cos(surf.kinem.alpha) + surf.kinem.hdot*sin(surf.kinem.alpha) + surf.uind[i]*cos(surf.kinem.alpha) - surf.wind[i]*sin(surf.kinem.alpha)
-        
+
         p_in[i] = 8*surf.uref*sqrt(surf.c)*surf.a0[1]*sqrt(surf.x[i])*udash/(surf.rho*surf.c + 2*surf.x[i]) + 4*surf.uref*sqrt(surf.c)*surf.a0dot[1]*sqrt(surf.x[i])
     end
     for i = 2:surf.ndiv
         udash = surf.kinem.u*cos(surf.kinem.alpha) + surf.kinem.hdot*sin(surf.kinem.alpha) + surf.uind[i]*cos(surf.kinem.alpha) - surf.wind[i]*sin(surf.kinem.alpha)
         gam[i] = surf.a0[1]*cot(surf.theta[i]/2)
-        gamint[i] = surf.a0dot[1]*(surf.theta[i] + sin(surf.theta[i]))  
+        gamint[i] = surf.a0dot[1]*(surf.theta[i] + sin(surf.theta[i]))
         for n = 1:surf.naterm
             gam[i] += surf.aterm[n]*sin(n*surf.theta[i])
             gammod[i] += surf.aterm[n]*sin(n*surf.theta[i])
@@ -200,11 +211,11 @@ function calc_delcp(surf::TwoDSurf, vels::Vector{Float64})
         gam[i] = gam[i]*surf.uref
         gammod[i] = gammod[i]*surf.uref
         gamint[i] = gamint[i]*surf.uref*surf.c
-        
-        p_out[i] = 2*udash*gam[i] + gamint[i] 
+
+        p_out[i] = 2*udash*gam[i] + gamint[i]
         p_com[i] = 2*udash*surf.uref*surf.a0[1]*(cos(surf.theta[i]/2)-1)/sin(surf.theta[i]/2) + 2*udash*gammod[i] + gamint[i] + 8*surf.uref*udash*surf.c*surf.a0[1]*sin(surf.theta[i]/2)/(surf.rho*surf.c + 2*surf.c*(sin(surf.theta[i]/2))^2)
     end
-    
+
     return p_com, p_in, p_out
 end
 
@@ -216,15 +227,15 @@ function calc_edgeVel(surf::TwoDSurf, vels::Vector{Float64})
 
     q_com_u[1] = surf.uref*surf.a0[1]/sqrt(0.5*surf.rho)
     q_com_l[1] = surf.uref*surf.a0[1]/sqrt(0.5*surf.rho)
-    
+
     for i = 2:surf.ndiv
         udash = (surf.kinem.u + vels[1])*cos(surf.kinem.alpha) + (surf.kinem.hdot - vels[2])*sin(surf.kinem.alpha) + surf.uind[i]*cos(surf.kinem.alpha) - surf.wind[i]*sin(surf.kinem.alpha)
-        
+
         for n = 1:surf.naterm
             gammod[i] += surf.aterm[n]*sin(n*surf.theta[i])
         end
         gammod[i] = gammod[i]*surf.uref
-                
+
         q_com_u[i] = surf.uref*surf.a0[1]*(cos(surf.theta[i]/2) - 1)/sin(surf.theta[i]/2) + surf.uref*gammod[i] + (sqrt(surf.c)*surf.uref*surf.a0[1] + sqrt(surf.x[i])*udash)/sqrt(surf.x[i] + surf.rho*surf.c/2)
         q_com_l[i] = -surf.uref*surf.a0[1]*(cos(surf.theta[i]/2) - 1)/sin(surf.theta[i]/2) - surf.uref*gammod[i] + (-sqrt(surf.c)*surf.uref*surf.a0[1] + sqrt(surf.x[i])*udash)/sqrt(surf.x[i] + surf.rho*surf.c/2)
     end
@@ -235,9 +246,9 @@ end
 function getEndCycle(mat, k)
 
     T = pi/k
-    
+
     end_cycle = mat[end,1]
-    
+
     #Find number of cycles
     ncyc = 0
     for i = 1:1000
@@ -247,14 +258,14 @@ function getEndCycle(mat, k)
         end
         ncyc = ncyc + 1
     end
-    
+
     start_t = real(ncyc-1)*T
     end_t = real(ncyc)*T
     start_ind = argmin(abs.(mat[:,1] .- start_t))
     end_ind = argmin(abs.(mat[:,1] .- end_t))
 
     nlast = end_ind - start_ind + 1
-    
+
     newmat = zeros(nlast, 8)
     newmat[:,1] = (mat[start_ind:end_ind,1] .- start_t)/T
     for i = 2:7
@@ -262,7 +273,7 @@ function getEndCycle(mat, k)
     end
 
     f = open("resultsSummaryEndCycle", "w")
-    Serialization.serialize(f, ["#t/T \t", "alpha (deg) \t", "h/c \t", "u/uref \t", "A0 \t", "Cl \t", "Cd \t", "Cm \n"])
+    println(f, "#t/T \t", "alpha (deg) \t", "h/c \t", "u/uref \t", "A0 \t", "Cl \t", "Cd \t", "Cm ")
     DelimitedFiles.writedlm(f, newmat)
     close(f)
 
